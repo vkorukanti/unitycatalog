@@ -229,6 +229,19 @@ IntelliJ is the recommended IDE to use when developing Unity Catalog. The below 
 3. Under `Import project from external model` select `sbt`. Click `Next`.
 4. Click `Finish`.
 
+### Enable annotation processing in IntelliJ settings
+Unity Catalog code uses `@SneakyThrows` annotations to avoid javac's insistence on catching or throwing onward any checked exceptions that statements generate in few methods.
+
+By default these annotations are not processed in Intelliji and throws compilation errors like below when built from IntelliJ:
+```
+unreported exception java.security.NoSuchAlgorithmException; must be caught or declared to be thrown
+securityConfiguration.rsaPublicKey()
+```
+
+To enable annotation processing
+1. Open `Settings` -> `Build, Execution, Deployment` -> `Compiler` -> `Annotation Processors`
+2. Select toggle `Enable annotation processing` and select `Obtain processors from project classpath`
+
 Java code adheres to the [Google style](https://google.github.io/styleguide/javaguide.html), which is verified via `build/sbt javafmtCheckAll` during builds.
 In order to automatically fix Java code style issues, please use `build/sbt javafmtAll`.
 
