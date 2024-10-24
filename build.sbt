@@ -509,12 +509,13 @@ lazy val spark = (project in file("connectors/spark"))
       "com.google.cloud.bigdataoss" % "util-hadoop" % "3.0.2" % Provided,
       "org.apache.hadoop" % "hadoop-azure" % "3.4.0" % Provided,
       // Iceberg REST Catalog dependencies
-      "org.apache.iceberg" % "iceberg-core" % "1.5.2" % Test,
-      "org.apache.iceberg" % "iceberg-aws" % "1.5.2" % Test,
-      "org.apache.iceberg" % "iceberg-azure" % "1.5.2" % Test,
-      "org.apache.iceberg" % "iceberg-gcp" % "1.5.2" % Test,
+      "org.apache.iceberg" % "iceberg-core" % "1.5.2",
+      "org.apache.iceberg" % "iceberg-aws" % "1.5.2",
+      "org.apache.iceberg" % "iceberg-azure" % "1.5.2",
+      "org.apache.iceberg" % "iceberg-gcp" % "1.5.2",
       // https://mvnrepository.com/artifact/org.apache.iceberg/iceberg-spark-runtime-3.5
-      "org.apache.iceberg" %% "iceberg-spark-runtime-3.5" % "1.6.1" % Test,
+      "org.apache.iceberg" %% "iceberg-spark-runtime-3.5" % "1.6.1",
+      "io.delta" %% "delta-iceberg" % deltaVersion,
     ),
     libraryDependencies ++= Seq(
       // Test dependencies
@@ -525,7 +526,7 @@ lazy val spark = (project in file("connectors/spark"))
       "org.mockito" % "mockito-junit-jupiter" % "5.12.0" % Test,
       "net.aichler" % "jupiter-interface" % JupiterKeys.jupiterVersion.value % Test,
       "org.apache.hadoop" % "hadoop-client-runtime" % "3.4.0",
-      "io.delta" %% "delta-spark" % deltaVersion % Test,
+      "io.delta" %% "delta-spark" % deltaVersion,
     ),
     dependencyOverrides ++= Seq(
       "com.fasterxml.jackson.core" % "jackson-databind" % "2.15.0",

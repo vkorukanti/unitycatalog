@@ -119,6 +119,10 @@ public class TableRepository {
   }
 
   public TableInfo createTable(CreateTable createTable) {
+    return createTable(createTable, false);
+  }
+
+  public TableInfo createTable(CreateTable createTable, boolean updateIfExists) {
     ValidationUtils.validateSqlObjectName(createTable.getName());
     String callerId = IdentityUtils.findPrincipalEmailAddress();
     List<ColumnInfo> columnInfos =
@@ -195,6 +199,62 @@ public class TableRepository {
       }
       throw new BaseException(
           ErrorCode.INTERNAL, "Error creating table: " + fullName + ". " + e.getMessage(), e);
+    }
+    return tableInfo;
+  }
+
+  public TableInfo updateTable(TableInfo tableInfo) {
+    Transaction tx;
+    try (Session session = SESSION_FACTORY.openSession()) {
+      String catalogName = tableInfo.getCatalogName();
+      String schemaName = tableInfo.getSchemaName();
+      UUID schemaId = getSchemaId(session, catalogName, schemaName);
+      tx = session.beginTransaction();
+
+      try {
+        // Check if table already exists
+        TableInfoDAO existingTable = findBySchemaIdAndName(session, schemaId, tableInfo.getName());
+        if (existingTable == null) {
+          throw new BaseException(ErrorCode.NOT_FOUND, "Table not found: " + tableInfo.getName());
+        }
+
+        // update properties
+        PropertyRepository.findProperties(session, existingTable.getId(), Constants.TABLE)
+            .forEach(
+                propertyDAO -> {
+                  propertyDAO.setValue(tableInfo.getProperties().get(propertyDAO.getKey()));
+                  session.update(propertyDAO);
+                });
+
+        // TODO: update the whole table later if needed, for this POC, just
+        // updating the prroperties is good enough
+        //        TableInfoDAO tableInfoDAO = TableInfoDAO.from(tableInfo);
+        //        tableInfoDAO.setId(existingTable.getId());
+        //        tableInfoDAO.setSchemaId(schemaId);
+        //        // create columns
+        //        tableInfoDAO
+        //            .getColumns()
+        //            .forEach(
+        //                c -> {
+        //                  if (c.getId() == null) {
+        //                    c.setId(UUID.randomUUID());
+        //                    c.setTable(tableInfoDAO);
+        //                  }
+        //                });
+        //
+        //        session.update(tableInfoDAO);
+        tx.commit();
+      } catch (RuntimeException e) {
+        if (tx != null && tx.getStatus().canRollback()) {
+          tx.rollback();
+        }
+        throw e;
+      }
+    } catch (RuntimeException e) {
+      if (e instanceof BaseException) {
+        throw e;
+      }
+      throw new BaseException(ErrorCode.INTERNAL, "Error updated table: " + e.getMessage(), e);
     }
     return tableInfo;
   }

@@ -1,6 +1,7 @@
 package io.unitycatalog.server.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.google.common.collect.ImmutableMap;
 import com.linecorp.armeria.common.AggregatedHttpResponse;
 import com.linecorp.armeria.common.HttpResponse;
 import com.linecorp.armeria.common.HttpStatus;
@@ -23,12 +24,12 @@ import io.unitycatalog.server.model.TableInfo;
 import io.unitycatalog.server.model.TableType;
 import io.unitycatalog.server.persist.TableRepository;
 import io.unitycatalog.server.persist.utils.HibernateUtils;
+import io.unitycatalog.server.service.iceberg.IcebergMetadataConversion;
 import io.unitycatalog.server.service.iceberg.IcebergTableOperations;
 import io.unitycatalog.server.service.iceberg.MetadataService;
 import io.unitycatalog.server.service.iceberg.TableConfigService;
 import io.unitycatalog.server.utils.JsonUtils;
 import java.io.IOException;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -185,23 +186,6 @@ public class IcebergRestCatalogService {
     String location =
         request.location() == null ? "file:/tmp/tables/" + UUID.randomUUID() : request.location();
 
-    CreateTable createTable = new CreateTable();
-    createTable.setCatalogName(catalog);
-    createTable.setSchemaName(schema);
-    createTable.name(request.name());
-    createTable.setTableType(TableType.EXTERNAL);
-    createTable.setDataSourceFormat(DataSourceFormat.DELTA);
-    // createTable.setColumns(fromIceberg(request.schema()));
-    createTable.storageLocation(location);
-    createTable.properties(Collections.singletonMap("supports_read_write_through_IRC", "true"));
-
-    TableInfo tableInfo;
-    try {
-      tableInfo = tableRepository.createTable(createTable);
-    } catch (Exception e) {
-      throw new IllegalArgumentException("Failed to create table: " + e.getMessage());
-    }
-
     TableMetadata tableMetadata =
         IcebergTableOperations.createMetadataForNewTable(
             request, UUID.randomUUID().toString(), location);
@@ -210,6 +194,35 @@ public class IcebergRestCatalogService {
 
     TableMetadata loadedTableMetadata = metadataService.readTableMetadata(metadataLocation);
     Map<String, String> config = tableConfigService.getTableConfig(loadedTableMetadata);
+
+    // Create the Delta log for the table
+    if (!request.stageCreate()) {
+      IcebergMetadataConversion.convertToDelta(metadataLocation, location);
+    }
+
+    CreateTable createTable = new CreateTable();
+    createTable.setCatalogName(catalog);
+    createTable.setSchemaName(schema);
+    createTable.name(request.name());
+    createTable.setTableType(TableType.EXTERNAL);
+    createTable.setDataSourceFormat(DataSourceFormat.DELTA);
+    // createTable.setColumns(fromIceberg(request.schema()));
+    createTable.storageLocation(location);
+    createTable.properties(
+        ImmutableMap.of(
+            "supports_read_write_through_IRC",
+            "true",
+            "iceberg_latest_metadata_location",
+            metadataLocation,
+            "is_staged_table",
+            Boolean.toString(request.stageCreate())));
+
+    TableInfo tableInfo;
+    try {
+      tableInfo = tableRepository.createTable(createTable);
+    } catch (Exception e) {
+      throw new IllegalArgumentException("Failed to create table: " + e.getMessage());
+    }
 
     return LoadTableResponse.builder()
         .withTableMetadata(loadedTableMetadata)
@@ -245,8 +258,11 @@ public class IcebergRestCatalogService {
     String metadataLocation;
     try (Session session = sessionFactory.openSession()) {
       TableInfo tableInfo = tableRepository.getTable(namespace + "." + table);
-      metadataLocation =
-          tableRepository.getTableUniformMetadataLocation(session, catalog, schema, table);
+      if (tableInfo.getProperties().get("supports_read_write_through_IRC") == null) {
+        // This is not a Delta table that can be updated through IRC.
+        throw new NoSuchTableException("Table does not exist: %s", namespace + "." + table);
+      }
+      metadataLocation = tableInfo.getProperties().get("iceberg_latest_metadata_location");
     }
 
     if (metadataLocation == null) {
@@ -267,12 +283,62 @@ public class IcebergRestCatalogService {
   public LoadTableResponse updateTable(
       @Param("namespace") String namespace,
       @Param("table") String table,
-      UpdateTableRequest request) {
-    // this is not supported yet, but Iceberg REST client tries to load
-    // a table with given path name and then tries to load a view with that
-    // name if it didn't find a table, so for now, let's just return a 404
-    // as that should be expected since it didn't find a table with the name
-    throw new NoSuchTableException("");
+      UpdateTableRequest updateTableRequest) {
+    List<String> namespaceParts = splitTwoPartNamespace(namespace);
+    String catalog = namespaceParts.get(0);
+    String schema = namespaceParts.get(1);
+    String lastMetadataLocation;
+    boolean isStaged;
+    String tableLocation;
+    TableInfo tableInfo;
+    try (Session session = sessionFactory.openSession()) {
+      tableInfo = tableRepository.getTable(namespace + "." + table);
+      if (tableInfo.getProperties().get("supports_read_write_through_IRC") == null) {
+        // This is not a Delta table that can be updated through IRC.
+        throw new NoSuchTableException("Table does not exist: %s", namespace + "." + table);
+      }
+      lastMetadataLocation = tableInfo.getProperties().get("iceberg_latest_metadata_location");
+      isStaged = Boolean.parseBoolean(tableInfo.getProperties().get("is_staged_table"));
+      tableLocation = tableInfo.getStorageLocation();
+    }
+
+    if (lastMetadataLocation == null) {
+      throw new NoSuchTableException("Table does not exist: %s", namespace + "." + table);
+    }
+
+    // TODO: We need a lock here to ensure that the table metadata is not updated concurrently.
+    // or does UC already handle this?
+    Optional<TableMetadata> currentMetadata;
+    if (isStaged) {
+      currentMetadata = Optional.empty();
+    } else {
+      currentMetadata = Optional.of(metadataService.readTableMetadata(lastMetadataLocation));
+    }
+
+    // Validate commit requirements against base metadata.
+    // TODO: need to figureout how to create the staging table. Because of that
+    // we are not able to validate the requirements. One of the requirements is
+    // to have no table, but we create it when we get the create table request (with
+    // staging set to true). So, we need to figure out how to create the staging table
+    // updateTableRequest.requirements().stream().forEach(update -> update.validate(baseMetadata));
+
+    TableMetadata newMetadata =
+        IcebergTableOperations.buildMetadata(currentMetadata, updateTableRequest.updates());
+
+    // Write the new metadata to a new location
+    long newMetadataVersion =
+        currentMetadata.map(TableMetadata::lastSequenceNumber).orElse(-1L) + 1;
+    String newMetadataLocation =
+        metadataService.writeTableMetadata(newMetadata, tableLocation, newMetadataVersion);
+
+    Map<String, String> config = tableConfigService.getTableConfig(newMetadata);
+
+    IcebergMetadataConversion.convertToDelta(newMetadataLocation, tableLocation);
+
+    tableInfo.getProperties().put("iceberg_latest_metadata_location", newMetadataLocation);
+    tableRepository.updateTable(tableInfo);
+
+    return LoadTableResponse.builder().withTableMetadata(newMetadata).addAllConfig(config).build();
   }
 
   @Get("/v1/namespaces/{namespace}/views/{view}")
