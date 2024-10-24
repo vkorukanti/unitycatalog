@@ -22,4 +22,11 @@ public class MetadataService {
     return CompletableFuture.supplyAsync(() -> TableMetadataParser.read(fileIO, metadataLocation))
         .join();
   }
+
+  public String writeTableMetadata(
+      TableMetadata tableMetadata, String location, long newMetadataVersion) {
+    URI locationUri = URI.create(location);
+    return IcebergTableOperations.writeMetadataFileWithFileIO(
+        fileIOFactory.getFileIO(locationUri), tableMetadata, newMetadataVersion);
+  }
 }

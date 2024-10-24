@@ -12,33 +12,44 @@ import com.linecorp.armeria.server.annotation.Post;
 import com.linecorp.armeria.server.annotation.ProducesJson;
 import io.unitycatalog.server.exception.IcebergRestExceptionHandler;
 import io.unitycatalog.server.model.CatalogInfo;
+import io.unitycatalog.server.model.ColumnInfo;
+import io.unitycatalog.server.model.CreateTable;
+import io.unitycatalog.server.model.DataSourceFormat;
 import io.unitycatalog.server.model.ListCatalogsResponse;
 import io.unitycatalog.server.model.ListSchemasResponse;
 import io.unitycatalog.server.model.ListTablesResponse;
 import io.unitycatalog.server.model.SchemaInfo;
 import io.unitycatalog.server.model.TableInfo;
+import io.unitycatalog.server.model.TableType;
 import io.unitycatalog.server.persist.TableRepository;
 import io.unitycatalog.server.persist.utils.HibernateUtils;
+import io.unitycatalog.server.service.iceberg.IcebergTableOperations;
 import io.unitycatalog.server.service.iceberg.MetadataService;
 import io.unitycatalog.server.service.iceberg.TableConfigService;
 import io.unitycatalog.server.utils.JsonUtils;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.exceptions.NoSuchViewException;
 import org.apache.iceberg.relocated.com.google.common.base.Splitter;
+import org.apache.iceberg.rest.requests.CreateTableRequest;
+import org.apache.iceberg.rest.requests.UpdateTableRequest;
 import org.apache.iceberg.rest.responses.ConfigResponse;
 import org.apache.iceberg.rest.responses.GetNamespaceResponse;
 import org.apache.iceberg.rest.responses.ListNamespacesResponse;
 import org.apache.iceberg.rest.responses.LoadTableResponse;
 import org.apache.iceberg.rest.responses.LoadViewResponse;
+import org.apache.iceberg.types.Types;
 import org.hibernate.Session;
 import org.hibernate.SessionFactory;
 
@@ -163,6 +174,48 @@ public class IcebergRestCatalogService {
   }
 
   // Table APIs
+  @Post("/v1/namespaces/{namespace}/tables")
+  @ProducesJson
+  public LoadTableResponse createTable(
+      @Param("namespace") String namespace, CreateTableRequest request) {
+    List<String> namespaceParts = splitTwoPartNamespace(namespace);
+    String catalog = namespaceParts.get(0);
+    String schema = namespaceParts.get(1);
+
+    String location =
+        request.location() == null ? "file:/tmp/tables/" + UUID.randomUUID() : request.location();
+
+    CreateTable createTable = new CreateTable();
+    createTable.setCatalogName(catalog);
+    createTable.setSchemaName(schema);
+    createTable.name(request.name());
+    createTable.setTableType(TableType.EXTERNAL);
+    createTable.setDataSourceFormat(DataSourceFormat.DELTA);
+    // createTable.setColumns(fromIceberg(request.schema()));
+    createTable.storageLocation(location);
+    createTable.properties(Collections.singletonMap("supports_read_write_through_IRC", "true"));
+
+    TableInfo tableInfo;
+    try {
+      tableInfo = tableRepository.createTable(createTable);
+    } catch (Exception e) {
+      throw new IllegalArgumentException("Failed to create table: " + e.getMessage());
+    }
+
+    TableMetadata tableMetadata =
+        IcebergTableOperations.createMetadataForNewTable(
+            request, UUID.randomUUID().toString(), location);
+
+    String metadataLocation = metadataService.writeTableMetadata(tableMetadata, location, 1);
+
+    TableMetadata loadedTableMetadata = metadataService.readTableMetadata(metadataLocation);
+    Map<String, String> config = tableConfigService.getTableConfig(loadedTableMetadata);
+
+    return LoadTableResponse.builder()
+        .withTableMetadata(loadedTableMetadata)
+        .addAllConfig(config)
+        .build();
+  }
 
   @Head("/v1/namespaces/{namespace}/tables/{table}")
   public HttpResponse tableExists(
@@ -207,6 +260,19 @@ public class IcebergRestCatalogService {
         .withTableMetadata(tableMetadata)
         .addAllConfig(config)
         .build();
+  }
+
+  @Post("/v1/namespaces/{namespace}/tables/{table}")
+  @ProducesJson
+  public LoadTableResponse updateTable(
+      @Param("namespace") String namespace,
+      @Param("table") String table,
+      UpdateTableRequest request) {
+    // this is not supported yet, but Iceberg REST client tries to load
+    // a table with given path name and then tries to load a view with that
+    // name if it didn't find a table, so for now, let's just return a 404
+    // as that should be expected since it didn't find a table with the name
+    throw new NoSuchTableException("");
   }
 
   @Get("/v1/namespaces/{namespace}/views/{view}")
@@ -281,5 +347,12 @@ public class IcebergRestCatalogService {
     }
 
     return namespaceParts;
+  }
+
+  private List<ColumnInfo> fromIceberg(Schema schema) {
+    Types.StructType structType = schema.asStruct();
+    return structType.fields().stream()
+        .map(field -> new ColumnInfo().name(field.name()).typeText(field.type().toString()))
+        .collect(Collectors.toList());
   }
 }

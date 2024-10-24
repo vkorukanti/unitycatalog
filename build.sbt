@@ -299,6 +299,8 @@ lazy val server = (project in file("server"))
       "io.vertx" % "vertx-core" % "4.3.5",
       "io.vertx" % "vertx-web" % "4.3.5",
       "io.vertx" % "vertx-web-client" % "4.3.5",
+//      "org.apache.hadoop" % "hadoop-client-api" % "3.4.0" % Provided,
+//      "org.apache.hadoop" % "hadoop-client-runtime" % "3.4.0" % Provided,
 
       // Auth dependencies
       "com.unboundid.product.scim2" % "scim2-sdk-common" % "3.1.0",
@@ -506,6 +508,13 @@ lazy val spark = (project in file("connectors/spark"))
       "org.antlr" % "antlr4" % "4.9.3",
       "com.google.cloud.bigdataoss" % "util-hadoop" % "3.0.2" % Provided,
       "org.apache.hadoop" % "hadoop-azure" % "3.4.0" % Provided,
+      // Iceberg REST Catalog dependencies
+      "org.apache.iceberg" % "iceberg-core" % "1.5.2" % Test,
+      "org.apache.iceberg" % "iceberg-aws" % "1.5.2" % Test,
+      "org.apache.iceberg" % "iceberg-azure" % "1.5.2" % Test,
+      "org.apache.iceberg" % "iceberg-gcp" % "1.5.2" % Test,
+      // https://mvnrepository.com/artifact/org.apache.iceberg/iceberg-spark-runtime-3.5
+      "org.apache.iceberg" %% "iceberg-spark-runtime-3.5" % "1.6.1" % Test,
     ),
     libraryDependencies ++= Seq(
       // Test dependencies
