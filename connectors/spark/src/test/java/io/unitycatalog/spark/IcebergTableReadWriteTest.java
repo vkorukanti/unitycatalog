@@ -35,25 +35,34 @@ public class IcebergTableReadWriteTest extends BaseSparkIntegrationTest {
   @Test
   public void testReadWrite() throws IOException, ApiException {
     // Test both `spark_catalog` and other catalog names.
-    SparkSession session = createSparkSessionWithIcebergRestCatalog();
+    SparkSession session = createSparkSession();
     createIcebergNamespaces();
 
     session.sql("CREATE TABLE iceberg.`main.default`.test USING iceberg AS SELECT 1, 'a'");
 
-    Row row = session.sql("SELECT * FROM iceberg.`main.default`.test").collectAsList().get(0);
-    assertThat(row.getInt(0)).isEqualTo(1);
-    assertThat(row.getString(1)).isEqualTo("a");
+    Row icebergResults =
+        session.sql("SELECT * FROM iceberg.`main.default`.test").collectAsList().get(0);
+    assertThat(icebergResults.getInt(0)).isEqualTo(1);
+    assertThat(icebergResults.getString(1)).isEqualTo("a");
+
+    //    Row deltaDescribe = session.sql("DESCRIBE EXTENDED
+    // main.default.test").collectAsList().get(0);
+    //    assertThat(deltaDescribe.getString(7).equals("delta"));
+
+    Row deltaResults = session.sql("SELECT * FROM main.default.test").collectAsList().get(0);
+    assertThat(deltaResults.getInt(0)).isEqualTo(1);
+    assertThat(deltaResults.getString(1)).isEqualTo("a");
 
     session.stop();
   }
 
-  protected SparkSession createSparkSessionWithIcebergRestCatalog() {
+  // with Iceberg Rest catalog client and UCSingleCatalog for Delta
+  protected SparkSession createSparkSession() {
     SparkSession.Builder builder =
         SparkSession.builder()
             .appName("IcebergSession")
             .master("local[*]")
             .config("spark.sql.shuffle.partitions", "4")
-            .config("spark.sql.catalog.iceberg", "org.apache.iceberg.spark.SparkCatalog")
             .config("spark.sql.catalog.iceberg", "org.apache.iceberg.spark.SparkCatalog")
             .config("spark.sql.catalog.iceberg.cache-enabled", "false")
             .config("spark.sql.catalog.iceberg.catalog-impl", "org.apache.iceberg.rest.RESTCatalog")
@@ -62,7 +71,16 @@ public class IcebergTableReadWriteTest extends BaseSparkIntegrationTest {
                 serverConfig.getServerUrl() + "/api/2.1/unity-catalog/iceberg")
             .config("spark.sql.catalog.iceberg.token", serverConfig.getAuthToken())
             // .config(s"spark.sql.catalog.$icebergCatalog.s3.endpoint", storageUrl)
-            .config("spark.sql.catalog.iceberg.io-impl", "org.apache.iceberg.hadoop.HadoopFileIO");
+            .config("spark.sql.catalog.iceberg.io-impl", "org.apache.iceberg.hadoop.HadoopFileIO")
+            .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension");
+
+    String catalogConf = "spark.sql.catalog.main";
+    builder =
+        builder
+            .config(catalogConf, UCSingleCatalog.class.getName())
+            .config(catalogConf + ".uri", serverConfig.getServerUrl())
+            .config(catalogConf + ".token", serverConfig.getAuthToken())
+            .config(catalogConf + ".__TEST_NO_DELTA__", "true");
 
     // Use fake file system for cloud storage so that we can test credentials.
     builder.config("fs.s3.impl", S3CredentialTestFileSystem.class.getName());
