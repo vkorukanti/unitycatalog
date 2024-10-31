@@ -203,6 +203,12 @@ public class TableRepository {
     return tableInfo;
   }
 
+  /**
+   * This should be update if certain condition is met
+   *
+   * @param tableInfo
+   * @return
+   */
   public TableInfo updateTable(TableInfo tableInfo) {
     Transaction tx;
     try (Session session = SESSION_FACTORY.openSession()) {

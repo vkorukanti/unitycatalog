@@ -1,5 +1,9 @@
 package io.unitycatalog.server.service;
 
+import static io.unitycatalog.server.service.iceberg.IcebergMetadataConversion.DELTA_TABLE_ACCESS_ENABLED_THROUGH_IRC;
+import static io.unitycatalog.server.service.iceberg.IcebergMetadataConversion.ICEBERG_IS_STAGED_PROP;
+import static io.unitycatalog.server.service.iceberg.IcebergMetadataConversion.ICEBERG_METADATA_PROP;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.collect.ImmutableMap;
 import com.linecorp.armeria.common.AggregatedHttpResponse;
@@ -51,6 +55,7 @@ import org.apache.iceberg.rest.responses.ListNamespacesResponse;
 import org.apache.iceberg.rest.responses.LoadTableResponse;
 import org.apache.iceberg.rest.responses.LoadViewResponse;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.util.Pair;
 import org.hibernate.Session;
 import org.hibernate.SessionFactory;
 
@@ -210,11 +215,11 @@ public class IcebergRestCatalogService {
     createTable.storageLocation(location);
     createTable.properties(
         ImmutableMap.of(
-            "supports_read_write_through_IRC",
+            DELTA_TABLE_ACCESS_ENABLED_THROUGH_IRC,
             "true",
-            "iceberg_latest_metadata_location",
-            metadataLocation,
-            "is_staged_table",
+            ICEBERG_METADATA_PROP,
+            createIcebergMetadataProp(-1, metadataLocation),
+            ICEBERG_IS_STAGED_PROP,
             Boolean.toString(request.stageCreate())));
 
     TableInfo tableInfo;
@@ -258,11 +263,17 @@ public class IcebergRestCatalogService {
     String metadataLocation;
     try (Session session = sessionFactory.openSession()) {
       TableInfo tableInfo = tableRepository.getTable(namespace + "." + table);
-      if (tableInfo.getProperties().get("supports_read_write_through_IRC") == null) {
+      if (tableInfo.getProperties().get(DELTA_TABLE_ACCESS_ENABLED_THROUGH_IRC) == null) {
         // This is not a Delta table that can be updated through IRC.
         throw new NoSuchTableException("Table does not exist: %s", namespace + "." + table);
       }
-      metadataLocation = tableInfo.getProperties().get("iceberg_latest_metadata_location");
+      String icebergMetadataProp = tableInfo.getProperties().get(ICEBERG_METADATA_PROP);
+      if (icebergMetadataProp == null) {
+        throw new NoSuchTableException("Table does not exist: %s", namespace + "." + table);
+        // TODO: backfill
+      }
+      Pair<Long, String> metadataProp = parseIcebergMetadataProp(icebergMetadataProp);
+      metadataLocation = metadataProp.second();
     }
 
     if (metadataLocation == null) {
@@ -293,12 +304,19 @@ public class IcebergRestCatalogService {
     TableInfo tableInfo;
     try (Session session = sessionFactory.openSession()) {
       tableInfo = tableRepository.getTable(namespace + "." + table);
-      if (tableInfo.getProperties().get("supports_read_write_through_IRC") == null) {
+      if (tableInfo.getProperties().get(DELTA_TABLE_ACCESS_ENABLED_THROUGH_IRC) == null) {
         // This is not a Delta table that can be updated through IRC.
         throw new NoSuchTableException("Table does not exist: %s", namespace + "." + table);
       }
-      lastMetadataLocation = tableInfo.getProperties().get("iceberg_latest_metadata_location");
-      isStaged = Boolean.parseBoolean(tableInfo.getProperties().get("is_staged_table"));
+      String icebergMetadataProp = tableInfo.getProperties().get(ICEBERG_METADATA_PROP);
+
+      if (icebergMetadataProp == null) {
+        throw new NoSuchTableException("Table does not exist: %s", namespace + "." + table);
+      }
+      Pair<Long, String> metadataProp = parseIcebergMetadataProp(icebergMetadataProp);
+      lastMetadataLocation = metadataProp.second();
+
+      isStaged = Boolean.parseBoolean(tableInfo.getProperties().get(ICEBERG_IS_STAGED_PROP));
       tableLocation = tableInfo.getStorageLocation();
     }
 
@@ -333,12 +351,28 @@ public class IcebergRestCatalogService {
 
     Map<String, String> config = tableConfigService.getTableConfig(newMetadata);
 
-    IcebergMetadataConversion.convertToDelta(newMetadataLocation, tableLocation);
+    long deltaVersion =
+        IcebergMetadataConversion.convertToDelta(newMetadataLocation, tableLocation);
 
-    tableInfo.getProperties().put("iceberg_latest_metadata_location", newMetadataLocation);
+    tableInfo
+        .getProperties()
+        .put("iceberg_metadata_prop", createIcebergMetadataProp(deltaVersion, newMetadataLocation));
+    tableInfo.getProperties().put(ICEBERG_IS_STAGED_PROP, Boolean.toString(false));
     tableRepository.updateTable(tableInfo);
 
     return LoadTableResponse.builder().withTableMetadata(newMetadata).addAllConfig(config).build();
+  }
+
+  private static Pair<Long, String> parseIcebergMetadataProp(String metadataProperty) {
+    String[] parts = metadataProperty.split("DELIMITER");
+    if (parts.length != 2) {
+      throw new IllegalArgumentException("Invalid metadata property: " + metadataProperty);
+    }
+    return Pair.of(Long.parseLong(parts[0]), parts[1]);
+  }
+
+  private static String createIcebergMetadataProp(long version, String location) {
+    return version + "DELIMITER" + location;
   }
 
   @Get("/v1/namespaces/{namespace}/views/{view}")

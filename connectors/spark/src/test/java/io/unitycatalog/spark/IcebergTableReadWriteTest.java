@@ -11,6 +11,7 @@ import io.unitycatalog.server.sdk.tables.SdkTableOperations;
 import io.unitycatalog.server.utils.TestUtils;
 import java.io.File;
 import java.io.IOException;
+import java.util.List;
 import org.apache.spark.network.util.JavaUtils;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
@@ -38,22 +39,65 @@ public class IcebergTableReadWriteTest extends BaseSparkIntegrationTest {
     SparkSession session = createSparkSession();
     createIcebergNamespaces();
 
-    session.sql("CREATE TABLE iceberg.`main.default`.test USING iceberg AS SELECT 1, 'a'");
+    session.sql(
+        "CREATE TABLE iceberg.`main.default`.test USING iceberg AS SELECT 1 as c1, '1' as c2");
 
-    Row icebergResults =
-        session.sql("SELECT * FROM iceberg.`main.default`.test").collectAsList().get(0);
-    assertThat(icebergResults.getInt(0)).isEqualTo(1);
-    assertThat(icebergResults.getString(1)).isEqualTo("a");
+    List<Row> results1 = session.sql("SELECT * FROM iceberg.`main.default`.test").collectAsList();
+    assertThat(results1.size()).isEqualTo(1);
+    assertContainsRow(results1, 1, "1");
 
-    //    Row deltaDescribe = session.sql("DESCRIBE EXTENDED
-    // main.default.test").collectAsList().get(0);
-    //    assertThat(deltaDescribe.getString(7).equals("delta"));
+    // INSERT DATA
+    {
+      session.sql("INSERT INTO iceberg.`main.default`.test " + values(2, 20));
 
-    Row deltaResults = session.sql("SELECT * FROM main.default.test").collectAsList().get(0);
-    assertThat(deltaResults.getInt(0)).isEqualTo(1);
-    assertThat(deltaResults.getString(1)).isEqualTo("a");
+      List<Row> results2 = session.sql("SELECT * FROM iceberg.`main.default`.test").collectAsList();
+      assertThat(results2.size()).isEqualTo(20);
+      for (int i = 1; i <= 20; i++) {
+        assertContainsRow(results2, i, String.valueOf(i));
+      }
+
+      List<Row> deltaResults2 = session.sql("SELECT * FROM main.default.test").collectAsList();
+      assertThat(deltaResults2.size()).isEqualTo(20);
+      for (int i = 1; i <= 20; i++) {
+        assertContainsRow(deltaResults2, i, String.valueOf(i));
+      }
+    }
+
+    // DML COMMANDS
+    {
+      session.sql("UPDATE iceberg.`main.default`.test SET c2 = '5-updated' WHERE c1 = 5");
+
+      List<Row> results2 = session.sql("SELECT * FROM iceberg.`main.default`.test").collectAsList();
+      assertThat(results2.size()).isEqualTo(20);
+      for (int i = 1; i <= 20; i++) {
+        assertContainsRow(results2, i, String.valueOf(i) + (i == 5 ? "-updated" : ""));
+      }
+
+      List<Row> deltaResults2 = session.sql("SELECT * FROM main.default.test").collectAsList();
+      assertThat(deltaResults2.size()).isEqualTo(20);
+      for (int i = 1; i <= 20; i++) {
+        assertContainsRow(results2, i, String.valueOf(i) + (i == 5 ? "-updated" : ""));
+      }
+    }
 
     session.stop();
+  }
+
+  private String values(int start, int end) {
+    StringBuilder sb = new StringBuilder();
+    sb.append("VALUES ");
+    for (int i = start; i <= end; i++) {
+      sb.append(String.format("(%d, '%s')", i, i));
+      if (i < end) {
+        sb.append(", ");
+      }
+    }
+    return sb.toString();
+  }
+
+  private void assertContainsRow(List<Row> rows, int id, String data) {
+    assertThat(rows.stream().anyMatch(row -> row.getInt(0) == id && row.getString(1).equals(data)))
+        .isTrue();
   }
 
   // with Iceberg Rest catalog client and UCSingleCatalog for Delta
