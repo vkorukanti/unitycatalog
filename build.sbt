@@ -19,7 +19,7 @@ lazy val javacRelease17 = Seq("--release", "17")
 lazy val scala212 = "2.12.15"
 lazy val scala213 = "2.13.14"
 
-lazy val deltaVersion = "3.2.1"
+lazy val deltaVersion = "3.3.0-SNAPSHOT"
 lazy val sparkVersion = "3.5.3"
 
 lazy val commonSettings = Seq(
@@ -516,6 +516,11 @@ lazy val spark = (project in file("connectors/spark"))
       // https://mvnrepository.com/artifact/org.apache.iceberg/iceberg-spark-runtime-3.5
       "org.apache.iceberg" %% "iceberg-spark-runtime-3.5" % "1.6.1",
       "io.delta" %% "delta-iceberg" % deltaVersion,
+      "io.delta" % "delta-kernel-api" % deltaVersion,
+      "io.delta" % "delta-kernel-defaults" % deltaVersion,
+      "io.delta" % "delta-storage" % deltaVersion,
+      "org.apache.hadoop" % "hadoop-client-api" % "3.4.0",
+      "org.apache.hadoop" % "hadoop-client-runtime" % "3.4.0",
     ),
     libraryDependencies ++= Seq(
       // Test dependencies

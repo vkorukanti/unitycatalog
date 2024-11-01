@@ -3,6 +3,7 @@ package io.unitycatalog.server.service.iceberg;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.net.URI;
+import org.apache.iceberg.util.Pair;
 
 public class IcebergMetadataConversion {
   public static final String DELTA_TABLE_ACCESS_ENABLED_THROUGH_IRC =
@@ -28,16 +29,40 @@ public class IcebergMetadataConversion {
 
       Constructor<?> constructor = clazz.getConstructor();
 
-      // For a constructor with parameters:
-      // Constructor<?> constructor = clazz.getConstructor(char[].class);
-
       // Step 3: Create a new instance
       Object instance = constructor.newInstance();
 
       // Step 3: Invoke the method
       // Since convertToDelta is a static method, pass null as the first argument
-      Object deltaVersion = method.invoke(instance, icebergURI.getPath(), deltaURI.getPath());
+      Object deltaVersion = method.invoke(instance, icebergTable, deltaTable);
       return (Long) deltaVersion;
+    } catch (Exception e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  public static Pair<Long, String> backfillIcebergMetadata(
+      String deltaTable, long lastDeltaVersionConverted, String lastIcebergManifestLocation) {
+    try {
+      URI deltaURI = new URI(deltaTable);
+      URI icebergManifestURI = new URI(lastIcebergManifestLocation);
+
+      // Step 1: Obtain the Class object
+      Class<?> clazz = Class.forName(CONVERTER_SCALA_CLASS);
+
+      // Step 2: Get the Method object
+      Method method =
+          clazz.getMethod("backfillIcebergMetadata", String.class, long.class, String.class);
+
+      // Step 3: Create a new instance
+      Constructor<?> constructor = clazz.getConstructor();
+      Object instance = constructor.newInstance();
+
+      // Step 3: Invoke the method
+      Object lastManifestVersion =
+          method.invoke(
+              instance, deltaTable, lastDeltaVersionConverted, lastIcebergManifestLocation);
+      return (Pair<Long, String>) lastManifestVersion;
     } catch (Exception e) {
       throw new RuntimeException(e);
     }

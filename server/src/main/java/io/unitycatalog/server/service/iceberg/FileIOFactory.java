@@ -113,6 +113,6 @@ public class FileIOFactory {
 
   private CredentialContext getCredentialContextFromTableLocation(URI tableLocationUri) {
     // FIXME!! privileges are defaulted to READ only here for now as Iceberg REST impl doesn't support write
-    return CredentialContext.create(tableLocationUri, Set.of(CredentialContext.Privilege.SELECT));
+    return CredentialContext.create(tableLocationUri, Set.of(CredentialContext.Privilege.SELECT, CredentialContext.Privilege.SELECT));
   }
 }

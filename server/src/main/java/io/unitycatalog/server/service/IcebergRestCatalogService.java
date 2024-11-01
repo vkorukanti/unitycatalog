@@ -267,13 +267,35 @@ public class IcebergRestCatalogService {
         // This is not a Delta table that can be updated through IRC.
         throw new NoSuchTableException("Table does not exist: %s", namespace + "." + table);
       }
+
       String icebergMetadataProp = tableInfo.getProperties().get(ICEBERG_METADATA_PROP);
       if (icebergMetadataProp == null) {
         throw new NoSuchTableException("Table does not exist: %s", namespace + "." + table);
-        // TODO: backfill
       }
-      Pair<Long, String> metadataProp = parseIcebergMetadataProp(icebergMetadataProp);
-      metadataLocation = metadataProp.second();
+
+      long lastDeltaVersionConverted = -1;
+      String lastMetadataLocation = null;
+      if (icebergMetadataProp != null) {
+        Pair<Long, String> metadataProp = parseIcebergMetadataProp(icebergMetadataProp);
+        lastDeltaVersionConverted = metadataProp.first();
+        lastMetadataLocation = metadataProp.second();
+      }
+
+      Pair<Long, String> versionManifestFile =
+          IcebergMetadataConversion.backfillIcebergMetadata(
+              tableInfo.getStorageLocation(), lastDeltaVersionConverted, lastMetadataLocation);
+
+      if (versionManifestFile.first() != lastDeltaVersionConverted) {
+        tableInfo
+            .getProperties()
+            .put(
+                ICEBERG_METADATA_PROP,
+                createIcebergMetadataProp(
+                    versionManifestFile.first(), versionManifestFile.second()));
+        tableRepository.updateTable(tableInfo);
+      }
+
+      metadataLocation = versionManifestFile.second();
     }
 
     if (metadataLocation == null) {
@@ -356,7 +378,7 @@ public class IcebergRestCatalogService {
 
     tableInfo
         .getProperties()
-        .put("iceberg_metadata_prop", createIcebergMetadataProp(deltaVersion, newMetadataLocation));
+        .put(ICEBERG_METADATA_PROP, createIcebergMetadataProp(deltaVersion, newMetadataLocation));
     tableInfo.getProperties().put(ICEBERG_IS_STAGED_PROP, Boolean.toString(false));
     tableRepository.updateTable(tableInfo);
 

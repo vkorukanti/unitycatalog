@@ -46,7 +46,7 @@ public class IcebergTableReadWriteTest extends BaseSparkIntegrationTest {
     assertThat(results1.size()).isEqualTo(1);
     assertContainsRow(results1, 1, "1");
 
-    // INSERT DATA
+    // INSERT DATA THROUGH IRC
     {
       session.sql("INSERT INTO iceberg.`main.default`.test " + values(2, 20));
 
@@ -63,20 +63,54 @@ public class IcebergTableReadWriteTest extends BaseSparkIntegrationTest {
       }
     }
 
-    // DML COMMANDS
+    // INSERT DATA THROUGH DELTA
+    {
+      session.sql("INSERT INTO main.default.test " + values(21, 40));
+
+      List<Row> results2 = session.sql("SELECT * FROM iceberg.`main.default`.test").collectAsList();
+      assertThat(results2.size()).isEqualTo(40);
+      for (int i = 1; i <= 40; i++) {
+        assertContainsRow(results2, i, String.valueOf(i));
+      }
+
+      List<Row> deltaResults2 = session.sql("SELECT * FROM main.default.test").collectAsList();
+      assertThat(deltaResults2.size()).isEqualTo(40);
+      for (int i = 1; i <= 40; i++) {
+        assertContainsRow(deltaResults2, i, String.valueOf(i));
+      }
+    }
+
+    // DML COMMANDS THROUGH IRC
     {
       session.sql("UPDATE iceberg.`main.default`.test SET c2 = '5-updated' WHERE c1 = 5");
 
       List<Row> results2 = session.sql("SELECT * FROM iceberg.`main.default`.test").collectAsList();
-      assertThat(results2.size()).isEqualTo(20);
-      for (int i = 1; i <= 20; i++) {
+      assertThat(results2.size()).isEqualTo(40);
+      for (int i = 1; i <= 40; i++) {
         assertContainsRow(results2, i, String.valueOf(i) + (i == 5 ? "-updated" : ""));
       }
 
       List<Row> deltaResults2 = session.sql("SELECT * FROM main.default.test").collectAsList();
-      assertThat(deltaResults2.size()).isEqualTo(20);
-      for (int i = 1; i <= 20; i++) {
+      assertThat(deltaResults2.size()).isEqualTo(40);
+      for (int i = 1; i <= 40; i++) {
         assertContainsRow(results2, i, String.valueOf(i) + (i == 5 ? "-updated" : ""));
+      }
+    }
+
+    // DML COMMANDS THROUGH DELTA
+    {
+      session.sql("UPDATE main.default.test SET c2 = '10-updated' WHERE c1 = 10");
+
+      List<Row> results2 = session.sql("SELECT * FROM iceberg.`main.default`.test").collectAsList();
+      assertThat(results2.size()).isEqualTo(40);
+      for (int i = 1; i <= 40; i++) {
+        assertContainsRow(results2, i, String.valueOf(i) + ((i == 10 || i == 5) ? "-updated" : ""));
+      }
+
+      List<Row> deltaResults2 = session.sql("SELECT * FROM main.default.test").collectAsList();
+      assertThat(deltaResults2.size()).isEqualTo(40);
+      for (int i = 1; i <= 40; i++) {
+        assertContainsRow(results2, i, String.valueOf(i) + ((i == 10 || i == 5) ? "-updated" : ""));
       }
     }
 
@@ -93,6 +127,42 @@ public class IcebergTableReadWriteTest extends BaseSparkIntegrationTest {
       }
     }
     return sb.toString();
+  }
+
+  @Test
+  public void testReadWritePertTest() throws IOException, ApiException {
+    // Test both `spark_catalog` and other catalog names.
+    SparkSession session = createSparkSession();
+    createIcebergNamespaces();
+
+    session.sql(
+        "CREATE TABLE iceberg.`main.default`.test USING iceberg AS SELECT 1 as c1, '1' as c2");
+
+    List<Row> results1 = session.sql("SELECT * FROM iceberg.`main.default`.test").collectAsList();
+    assertThat(results1.size()).isEqualTo(1);
+    assertContainsRow(results1, 1, "1");
+
+    // INSERT DATA
+    {
+      session.sql(
+          "INSERT INTO iceberg.`main.default`.test SELECT /*+ REPARTITION(10000) */ * FROM "
+              + values(2, 2000000));
+
+      List<Row> results2 = session.sql("SELECT * FROM iceberg.`main.default`.test").collectAsList();
+      assertThat(results2.size()).isEqualTo(2000000);
+      for (int i = 1; i <= 2000000; i++) {
+        assertContainsRow(results2, i, String.valueOf(i));
+      }
+
+      //      List<Row> deltaResults2 = session.sql("SELECT * FROM
+      // main.default.test").collectAsList();
+      //      assertThat(deltaResults2.size()).isEqualTo(20);
+      //      for (int i = 1; i <= 20; i++) {
+      //        assertContainsRow(deltaResults2, i, String.valueOf(i));
+      //      }
+    }
+
+    session.stop();
   }
 
   private void assertContainsRow(List<Row> rows, int id, String data) {
@@ -116,7 +186,10 @@ public class IcebergTableReadWriteTest extends BaseSparkIntegrationTest {
             .config("spark.sql.catalog.iceberg.token", serverConfig.getAuthToken())
             // .config(s"spark.sql.catalog.$icebergCatalog.s3.endpoint", storageUrl)
             .config("spark.sql.catalog.iceberg.io-impl", "org.apache.iceberg.hadoop.HadoopFileIO")
-            .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension");
+            .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+            .config(
+                "spark.sql.catalog.spark_catalog",
+                "org.apache.spark.sql.delta.catalog.DeltaCatalog");
 
     String catalogConf = "spark.sql.catalog.main";
     builder =
