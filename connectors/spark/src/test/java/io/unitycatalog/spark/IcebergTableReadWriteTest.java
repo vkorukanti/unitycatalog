@@ -40,7 +40,10 @@ public class IcebergTableReadWriteTest extends BaseSparkIntegrationTest {
     createIcebergNamespaces();
 
     session.sql(
-        "CREATE TABLE iceberg.`main.default`.test USING iceberg AS SELECT 1 as c1, '1' as c2");
+        String.format(
+            "CREATE TABLE iceberg.`main.default`.test USING iceberg LOCATION 'file:/tmp/iceberg_test-%s'"
+                + " AS SELECT 1 as c1, '1' as c2 ",
+            System.currentTimeMillis()));
 
     List<Row> results1 = session.sql("SELECT * FROM iceberg.`main.default`.test").collectAsList();
     assertThat(results1.size()).isEqualTo(1);
