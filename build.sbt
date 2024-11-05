@@ -299,8 +299,11 @@ lazy val server = (project in file("server"))
       "io.vertx" % "vertx-core" % "4.3.5",
       "io.vertx" % "vertx-web" % "4.3.5",
       "io.vertx" % "vertx-web-client" % "4.3.5",
-//      "org.apache.hadoop" % "hadoop-client-api" % "3.4.0" % Provided,
-//      "org.apache.hadoop" % "hadoop-client-runtime" % "3.4.0" % Provided,
+      "org.apache.hadoop" % "hadoop-client-api" % "3.4.0" % Provided,
+      "org.apache.hadoop" % "hadoop-client-runtime" % "3.4.0" % Provided,
+
+      "io.delta" % "delta-kernel-api" % deltaVersion,
+      "io.delta" % "delta-kernel-defaults" % deltaVersion,
 
       // Auth dependencies
       "com.unboundid.product.scim2" % "scim2-sdk-common" % "3.1.0",
