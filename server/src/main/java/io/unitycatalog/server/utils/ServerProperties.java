@@ -46,12 +46,12 @@ public class ServerProperties {
     Map<String, S3StorageConfig> s3BucketConfigMap = new HashMap<>();
     int i = 0;
     while (true) {
-      String bucketPath = properties.getProperty("s3.bucketPath." + i);
-      String region = properties.getProperty("s3.region." + i);
-      String awsRoleArn = properties.getProperty("s3.awsRoleArn." + i);
-      String accessKey = properties.getProperty("s3.accessKey." + i);
-      String secretKey = properties.getProperty("s3.secretKey." + i);
-      String sessionToken = properties.getProperty("s3.sessionToken." + i);
+      String bucketPath = getProperty("s3.bucketPath." + i);
+      String region = getProperty("s3.region." + i);
+      String awsRoleArn = getProperty("s3.awsRoleArn." + i);
+      String accessKey = getProperty("s3.accessKey." + i);
+      String secretKey = getProperty("s3.secretKey." + i);
+      String sessionToken = getProperty("s3.sessionToken." + i);
       if ((bucketPath == null || region == null || awsRoleArn == null)
           && (accessKey == null || secretKey == null || sessionToken == null)) {
         break;

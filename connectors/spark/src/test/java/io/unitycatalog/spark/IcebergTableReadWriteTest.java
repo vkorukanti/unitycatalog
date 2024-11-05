@@ -12,6 +12,7 @@ import io.unitycatalog.server.utils.TestUtils;
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
+import org.apache.hadoop.fs.s3a.S3AFileSystem;
 import org.apache.spark.network.util.JavaUtils;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
@@ -41,7 +42,7 @@ public class IcebergTableReadWriteTest extends BaseSparkIntegrationTest {
 
     session.sql(
         String.format(
-            "CREATE TABLE iceberg.`main.default`.test USING iceberg LOCATION 'file:/tmp/iceberg_test-%s'"
+            "CREATE TABLE iceberg.`main.default`.test USING iceberg LOCATION 's3://databricks-tdas/irctest/iceberg_test-%s'"
                 + " AS SELECT 1 as c1, '1' as c2 ",
             System.currentTimeMillis()));
 
@@ -202,10 +203,19 @@ public class IcebergTableReadWriteTest extends BaseSparkIntegrationTest {
             .config(catalogConf + ".token", serverConfig.getAuthToken())
             .config(catalogConf + ".__TEST_NO_DELTA__", "true");
 
+    builder =
+        builder
+            // Specify these config as environment variables
+            //            .config("spark.hadoop.fs.s3a.access.key", "xxx")
+            //            .config("spark.hadoop.fs.s3a.secret.key", "xxx")
+            //            .config("spark.hadoop.fs.s3a.session.token", "xxx")
+            //            .config("spark.hadoop.fs.s3a.region", "us-west-2")
+            .config("spark.hadoop.fs.s3.impl", S3AFileSystem.class.getName());
+
     // Use fake file system for cloud storage so that we can test credentials.
-    builder.config("fs.s3.impl", S3CredentialTestFileSystem.class.getName());
-    builder.config("fs.gs.impl", GCSCredentialTestFileSystem.class.getName());
-    builder.config("fs.abfs.impl", AzureCredentialTestFileSystem.class.getName());
+    //    builder.config("fs.s3.impl", S3CredentialTestFileSystem.class.getName());
+    //    builder.config("fs.gs.impl", GCSCredentialTestFileSystem.class.getName());
+    //    builder.config("fs.abfs.impl", AzureCredentialTestFileSystem.class.getName());
     return builder.getOrCreate();
   }
 

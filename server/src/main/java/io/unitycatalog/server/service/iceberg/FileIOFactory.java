@@ -19,6 +19,8 @@ import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.http.SdkHttpClient;
+import software.amazon.awssdk.http.apache.ApacheHttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.sts.model.Credentials;
@@ -94,8 +96,10 @@ public class FileIOFactory {
   }
 
   protected S3Client getS3Client(AwsCredentialsProvider awsCredentialsProvider, String region) {
+    SdkHttpClient httpClient = ApacheHttpClient.builder().build();
     return S3Client.builder()
         .region(Region.of(region))
+        .httpClient(httpClient)
         .credentialsProvider(awsCredentialsProvider)
         .forcePathStyle(false)
         .build();
@@ -113,6 +117,6 @@ public class FileIOFactory {
 
   private CredentialContext getCredentialContextFromTableLocation(URI tableLocationUri) {
     // FIXME!! privileges are defaulted to READ only here for now as Iceberg REST impl doesn't support write
-    return CredentialContext.create(tableLocationUri, Set.of(CredentialContext.Privilege.SELECT, CredentialContext.Privilege.SELECT));
+    return CredentialContext.create(tableLocationUri, Set.of(CredentialContext.Privilege.SELECT, CredentialContext.Privilege.UPDATE));
   }
 }

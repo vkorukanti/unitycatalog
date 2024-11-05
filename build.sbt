@@ -296,6 +296,7 @@ lazy val server = (project in file("server"))
       "org.apache.iceberg" % "iceberg-gcp" % "1.5.2",
       "software.amazon.awssdk" % "s3" % "2.24.0",
       "software.amazon.awssdk" % "sts" % "2.24.0",
+      "software.amazon.awssdk" % "apache-client" % "2.24.0",
       "io.vertx" % "vertx-core" % "4.3.5",
       "io.vertx" % "vertx-web" % "4.3.5",
       "io.vertx" % "vertx-web-client" % "4.3.5",
@@ -524,6 +525,14 @@ lazy val spark = (project in file("connectors/spark"))
       "io.delta" % "delta-storage" % deltaVersion,
       "org.apache.hadoop" % "hadoop-client-api" % "3.4.0",
       "org.apache.hadoop" % "hadoop-client-runtime" % "3.4.0",
+      "org.apache.iceberg" % "iceberg-core" % "1.5.2",
+      "org.apache.iceberg" % "iceberg-aws" % "1.5.2",
+      "org.apache.iceberg" % "iceberg-azure" % "1.5.2",
+      "org.apache.iceberg" % "iceberg-gcp" % "1.5.2",
+      "software.amazon.awssdk" % "s3" % "2.24.0",
+      "software.amazon.awssdk" % "sts" % "2.24.0",
+      "software.amazon.awssdk" % "apache-client" % "2.24.0",
+      "org.apache.hadoop" % "hadoop-aws" % "3.4.0",
     ),
     libraryDependencies ++= Seq(
       // Test dependencies
