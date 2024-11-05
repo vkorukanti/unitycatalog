@@ -3,24 +3,10 @@ package io.unitycatalog.spark
 import com.fasterxml.jackson.databind.{JsonNode, ObjectMapper}
 import io.delta.kernel.{Operation, Transaction}
 import io.delta.kernel.data.ColumnVector
-import org.apache.spark.sql.SparkSession
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 import org.apache.iceberg.{BaseTable, DataFile, DataFiles, Metrics, PartitionSpec, Snapshot, StaticTableOperations, Table, TableMetadata, TableMetadataParser, TableProperties}
 import org.apache.iceberg.hadoop.{HadoopFileIO, HadoopTableOperations}
-import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.catalyst.TableIdentifier
-import org.apache.spark.sql.delta.DeltaConfigs
-import org.apache.spark.sql.delta.DeltaLog
-import org.apache.spark.sql.delta.OptimisticTransaction
-import org.apache.spark.sql.delta.actions.{Action, AddFile, FileAction, Metadata, RemoveFile}
-import org.apache.spark.sql.delta.commands.CloneIcebergSource
-import org.apache.spark.sql.delta.commands.CloneSource
-import org.apache.spark.sql.delta.commands.CloneTableCommand
-import org.apache.spark.sql.delta.commands.convert.IcebergSchemaUtils
-import org.apache.spark.sql.delta.util.DeltaFileOperations
-import org.apache.spark.sql.types.StructType
-import org.apache.spark.sql.delta.DeltaOperations
 
 import java.util.{Collections, Optional, UUID}
 import java.nio.file.FileSystem
@@ -97,7 +83,6 @@ class ConvertIcebergToDeltaScalaUtils {
       else {
         // new table
         // update the metadata of the Delta table
-        val deltaSchema: StructType = getDeltaSchema(icebergTable)
         val properties = icebergTable.properties.asScala.toMap + ("delta.columnMapping.mode" -> "id")
 
         val kernelSchema = SchemaUtils.fromIcebergSchema(icebergTable.schema().asStruct())
@@ -221,10 +206,6 @@ class ConvertIcebergToDeltaScalaUtils {
     return new BaseTable(ops, manifestLocation)
   }
 
-  private def getDeltaSchema(table: Table): StructType = {
-    return IcebergSchemaUtils.convertIcebergSchemaToSpark(table.schema)
-  }
-
   private def getDeltaActionsFromIcebergCommit(snapshot: Snapshot, deltaTableLocation: String)
       : (Seq[DataFileStatus], Seq[DataFileStatus]) = {
     // get the list of data files
@@ -237,8 +218,9 @@ class ConvertIcebergToDeltaScalaUtils {
 
     snapshot.addedDataFiles(new HadoopFileIO(HADOOP_CONF)).iterator().asScala.foreach { file =>
       // create the action
-      val filePath = file.path().toString
-      val relativePath = DeltaFileOperations.tryRelativizePath(fs, deltaPath, new Path(filePath))
+      val filePath = new Path(file.path().toString)
+
+      val relativePath = new Path(fs.makeQualified(deltaPath).toUri.relativize(fs.makeQualified(filePath).toUri))
       addFiles += new DataFileStatus(
         relativePath.toString,
         file.fileSizeInBytes(),
@@ -248,8 +230,8 @@ class ConvertIcebergToDeltaScalaUtils {
 
     snapshot.removedDataFiles(new HadoopFileIO(HADOOP_CONF)).iterator().asScala.foreach { file =>
       // create the action
-      val filePath = file.path().toString
-      val relativePath = DeltaFileOperations.tryRelativizePath(fs, deltaPath, new Path(filePath))
+      val filePath = new Path(file.path().toString)
+      val relativePath = new Path(fs.makeQualified(deltaPath).toUri.relativize(fs.makeQualified(filePath).toUri))
       removeFiles += new DataFileStatus(
         relativePath.toString,
         file.fileSizeInBytes(),
@@ -279,7 +261,7 @@ class ConvertIcebergToDeltaScalaUtils {
       for (i <- 0 until addsVector.getSize) {
         if (!addsVector.isNullAt(i)) {
           val path = addPathVector.getString(i)
-          val absPath = DeltaFileOperations.absolutePath(deltaTableLocation, path)
+          val absPath = absolutePath(deltaTableLocation, path)
           val size = addSizeVector.getLong(i)
 
           val dataFile = DataFiles.builder(PartitionSpec.unpartitioned())
@@ -299,7 +281,7 @@ class ConvertIcebergToDeltaScalaUtils {
       for (i <- 0 until removesVector.getSize) {
         if (!removesVector.isNullAt(i)) {
           val removePath = removePathVector.getString(i)
-          val absPath = DeltaFileOperations.absolutePath(deltaTableLocation, removePath)
+          val absPath = absolutePath(deltaTableLocation, removePath)
 
           val size = removeSizeVector.getLong(i)
 
@@ -331,5 +313,15 @@ class ConvertIcebergToDeltaScalaUtils {
     val pNode = node.get("numRecords")
     val rowCount: Long = pNode.asLong()
     return new Metrics(rowCount, Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap())
+  }
+
+  private def absolutePath(basePath: String, relativePath: String): Path = {
+    val base = new Path(basePath)
+    val relative = new Path(relativePath)
+    if (relative.isAbsolute) {
+      relative
+    } else {
+      new Path(base, relative)
+    }
   }
 }
